@@ -18,33 +18,32 @@ abstract class UserOperations {
 class User extends UserOperations {
     private String name;
     private String password;
-    private java.util.List<PasswordEntry> passwords;
+    private HashMap<String, PasswordEntry> passwords;
 
     public User(String name, String password) {
         this.name = name;
         this.password = password;
-        this.passwords = new ArrayList<>();
+        this.passwords = new HashMap<>();
     }
 
     @Override
     public void addPassword(PasswordEntry entry) {
-        passwords.add(entry);
-        saveUserData();
+        if (validateEntry(entry)) {
+            passwords.put(entry.getAppName(), entry);
+            saveUserData();
+        } else {
+            throw new IllegalArgumentException("Invalid input. Make sure all fields are non-null and password is strong.");
+        }
     }
 
     @Override
     public PasswordEntry searchPassword(String appName) {
-        for (PasswordEntry entry : passwords) {
-            if (entry.getAppName().equalsIgnoreCase(appName)) {
-                return entry; // Return the found entry
-            }
-        }
-        return null; // Return null if no entry found
+        return passwords.get(appName);
     }
 
     @Override
     public boolean deletePassword(String appName) {
-        boolean removed = passwords.removeIf(entry -> entry.getAppName().equalsIgnoreCase(appName));
+        boolean removed = passwords.remove(appName) != null;
         if (removed) {
             saveUserData();
         }
@@ -63,8 +62,12 @@ class User extends UserOperations {
         return password;
     }
 
-    public java.util.List<PasswordEntry> getPasswords() {
+    public HashMap<String, PasswordEntry> getPasswords() {
         return passwords;
+    }
+
+    private boolean validateEntry(PasswordEntry entry) {
+        return entry.getAppName() != null && entry.getUsername() != null && entry.getPassword() != null && PasswordManagerApp.isPasswordStrong(entry.getPassword());
     }
 }
 
@@ -127,7 +130,7 @@ public class PasswordManagerApp {
                 reader.close();
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            System.out.println(e);
         }
     }
 
@@ -135,13 +138,13 @@ public class PasswordManagerApp {
         try (Writer writer = new FileWriter(FILE_PATH)) {
             for (User u : userDatabase.values()) {
                 StringBuilder userLine = new StringBuilder(u.getName() + ";" + u.getPassword());
-                for (PasswordEntry entry : u.getPasswords()) {
+                for (PasswordEntry entry : u.getPasswords().values()) {
                     userLine.append(";").append(entry.toString());
                 }
                 writer.write(userLine.toString() + "\n");
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            System.out.println(e);
         }
     }
 
@@ -175,7 +178,7 @@ public class PasswordManagerApp {
                 String username = usernameField.getText();
                 String password = new String(passwordField.getPassword());
 
-                if (userDatabase.containsKey(username) && userDatabase.get(username).getPassword().equals(password)) {
+                if (isInputValid(username, password) && userDatabase.containsKey(username) && userDatabase.get(username).getPassword().equals(password)) {
                     currentUser = userDatabase.get(username);
                     frame.dispose();
                     showUserInterface();
@@ -190,13 +193,17 @@ public class PasswordManagerApp {
                 String username = usernameField.getText();
                 String password = new String(passwordField.getPassword());
 
-                if (!userDatabase.containsKey(username)) {
-                    User newUser = new User(username, password);
-                    userDatabase.put(username, newUser);
-                    saveUserData(newUser);
-                    JOptionPane.showMessageDialog(frame, "User registered successfully.");
+                if (isInputValid(username, password) && !userDatabase.containsKey(username)) {
+                    if (isPasswordStrong(password)) {
+                        User newUser = new User(username, password);
+                        userDatabase.put(username, newUser);
+                        saveUserData(newUser);
+                        JOptionPane.showMessageDialog(frame, "User registered successfully.");
+                    } else {
+                        JOptionPane.showMessageDialog(frame, "Password must be 8 characters long, contain upper, lower, number, and special character.");
+                    }
                 } else {
-                    JOptionPane.showMessageDialog(frame, "User already exists.");
+                    JOptionPane.showMessageDialog(frame, "Invalid input or user already exists.");
                 }
             }
         });
@@ -238,9 +245,17 @@ public class PasswordManagerApp {
                 String username = usernameField.getText();
                 String password = new String(passwordField.getPassword());
 
-                PasswordEntry entry = new PasswordEntry(appName, username, password);
-                currentUser.addPassword(entry);
-                JOptionPane.showMessageDialog(userFrame, "Password added.");
+                if (isInputValid(username, password) && isPasswordStrong(password)) {
+                    PasswordEntry entry = new PasswordEntry(appName, username, password);
+                    try {
+                        currentUser.addPassword(entry);
+                        JOptionPane.showMessageDialog(userFrame, "Password added.");
+                    } catch (IllegalArgumentException ex) {
+                        JOptionPane.showMessageDialog(userFrame, ex.getMessage());
+                    }
+                } else {
+                    JOptionPane.showMessageDialog(userFrame, "Invalid input or weak password.");
+                }
             }
         });
 
@@ -271,5 +286,26 @@ public class PasswordManagerApp {
                 }
             }
         });
+    }
+
+    public static boolean isPasswordStrong(String password) {
+        if (password == null || password.length() < 8) return false;
+
+        boolean hasUpperCase = false, hasLowerCase = false, hasDigit = false, hasSpecialChar = false;
+        String specialChars = "@$!%*?&#";
+
+        for (char c : password.toCharArray()) {
+            if (Character.isUpperCase(c)) hasUpperCase = true;
+            else if (Character.isLowerCase(c)) hasLowerCase = true;
+            else if (Character.isDigit(c)) hasDigit = true;
+            else if (specialChars.indexOf(c) >= 0) hasSpecialChar = true;
+
+            if (hasUpperCase && hasLowerCase && hasDigit && hasSpecialChar) return true;
+        }
+        return false;
+    }
+
+    public static boolean isInputValid(String username, String password) {
+        return username != null && !username.trim().isEmpty() && password != null && !password.trim().isEmpty();
     }
 }
